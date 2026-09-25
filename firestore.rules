@@ -1,0 +1,43 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSuperAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Super Admin';
+    }
+
+    function isHRAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['HR Admin', 'Super Admin']);
+    }
+
+    // User accounts
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSuperAdmin() || (isSignedIn() && request.auth.uid == userId);
+      allow delete: if isSuperAdmin();
+    }
+
+    // Employee Master
+    match /employees/{employeeId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isHRAdmin();
+    }
+
+    // Activity Logs (Append-only)
+    match /activityLogs/{logId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if false; // strictly immutable append-only
+    }
+  }
+}
